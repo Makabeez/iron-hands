@@ -182,7 +182,7 @@ let provider, signer, account, contract, lockedUntil = 0, ticker;
 let chosenSecs = 86400;
 const $ = (id) => document.getElementById(id);
 
-if (CONTRACT_ADDRESS !== "0xd6763ac55bdC8e7274Fc430B0EB7C4439d2c10e0") {
+if (!/^0x0+$/.test(CONTRACT_ADDRESS)) {
   const a = $("ctrLink"); a.textContent = CONTRACT_ADDRESS.slice(0,6)+"…"+CONTRACT_ADDRESS.slice(-4);
   a.href = EXPLORER + "/address/" + CONTRACT_ADDRESS;
 }
@@ -286,7 +286,7 @@ $("btnWithdraw").onclick = ()=>{ const v=$("wAmt").value; if(!(+v>0))return toas
   tx(contract.withdraw(ethers.parseEther(v)), "Withdrawing "+v+" MON…"); };
 
 render();
-if(CONTRACT_ADDRESS==="0xd6763ac55bdC8e7274Fc430B0EB7C4439d2c10e0"){
+if(/^0x0+$/.test(CONTRACT_ADDRESS)){
   $("sub").textContent="set CONTRACT_ADDRESS in index.html";
 }
 </script>
