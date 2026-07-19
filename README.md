@@ -1,118 +1,128 @@
-# ⛒ Iron Hands
+<div align="center">
 
-**A personal trading circuit breaker.** Park your stack, set a cooldown, and you
-physically cannot pull it out to fund a tilt trade until the timer clears.
+<img src="assets/banner.svg" alt="Iron Hands — personal trading circuit breaker" width="100%" />
 
-Built for the [Spark](https://buildanything.so/hackathons/spark) hackathon on Monad.
+### A vault you lock *yourself* out of. A personal trading circuit breaker that kills revenge-trading.
 
----
+[![Live Demo](https://img.shields.io/badge/live_demo-iron--hands.vercel.app-836EF9?style=for-the-badge&logo=vercel&logoColor=white)](https://iron-hands-pearl.vercel.app/)
+[![Contract](https://img.shields.io/badge/contract-0xd676…10e0-FF3B3B?style=for-the-badge&logo=ethereum&logoColor=white)](https://testnet.monadexplorer.com/address/0xd6763ac55bdC8e7274Fc430B0EB7C4439d2c10e0)
+[![Built on Monad](https://img.shields.io/badge/built_on-Monad_testnet-836EF9?style=for-the-badge)](https://monad.xyz)
+[![License: MIT](https://img.shields.io/badge/license-MIT-e8e8ea?style=for-the-badge)](LICENSE)
 
-## The problem (mine)
+![Solidity](https://img.shields.io/badge/Solidity-0.8.24-363636?logo=solidity&logoColor=white)
+![Foundry](https://img.shields.io/badge/Foundry-9%2F9_passing-000000)
+![ethers.js](https://img.shields.io/badge/ethers.js-v6-2535A0)
+![Dependencies](https://img.shields.io/badge/dependencies-0-22E07A)
 
-I trade. Everyone who trades knows the move: you take a loss, and the worst
-version of you immediately wants to size back in and win it back *right now*.
-That single impulse has blown more funded challenges and accounts than any bad
-thesis ever did. Willpower fails exactly when you need it — mid-tilt, at 2am.
+</div>
 
-## The solution
+> I've blown funded trading accounts to revenge-trading. Not bad analysis — the 2am
+> urge to win it back *right now*. So I built the contract that won't let me.
+> Deployed live on Monad testnet · [deploy tx](https://testnet.monadexplorer.com/tx/0xffead9900531ec02c63149110b82473fa3af6d766827bc41b5af3e825c4eb993)
 
-Iron Hands is a vault you can lock **yourself** out of. The entire product is one
-asymmetry, enforced on-chain:
+## Why
+
+Revenge-trading after a loss blows more accounts than any bad thesis ever did. The
+urge hits hardest right after a loss, at 2am, when willpower is lowest. Every soft
+fix — "just close the app", "use a cold wallet" — fails because you can always undo
+it in the moment.
+
+**Iron Hands** removes the undo. It's a Ulysses pact as a smart contract, built on one
+asymmetry enforced on-chain:
 
 > You can **always** push your unlock time further out.
 > You can **never** pull it closer.
 
-There is no owner, no admin, no pause, no upgrade, and no rescue function — not
-even the deployer can release your funds early. When you're tilting and you go to
-yank your MON, the contract reverts. That revert is the feature.
+No owner. No admin. No pause. No upgrade. No rescue function. When you're tilting and
+go to yank your MON for a revenge trade, the withdrawal **reverts**. That revert is
+the product — present-you binds future-you, and the chain refuses to let you untie
+the knot early.
 
-It's a Ulysses pact as a smart contract: present-you binds future-you, and the
-chain refuses to let you untie the knot early.
+## Architecture
 
-## How it works
+```
+        ┌──────────────┐   deposit · lock · withdraw    ┌────────────────────────┐
+        │  your wallet │ ────────────────────────────►  │  IronHands.sol         │
+        │  (MetaMask/  │                                 │  Monad testnet (10143) │
+        │   Rabby)     │  ◄──── StillLocked  revert ───  │  no owner · immutable  │
+        └──────┬───────┘                                 └────────────────────────┘
+               │  reads vaultOf / timeRemaining
+        ┌──────▼───────┐
+        │  index.html  │   static · ethers v6 · no backend · no build step
+        │  breaker UI  │   GREEN open  ·  RED locked + live countdown
+        └──────────────┘
+```
 
-- `deposit()` — put MON in your vault.
-- `lock(duration)` — freeze withdrawals for `duration` seconds. Only ever extends.
-- `withdraw(amount)` — reverts with `StillLocked` until the cooldown elapses.
+## Stack
 
-No mutable owner state, no `onlyOwner` escape hatch, no `selfdestruct`. ~120 lines,
-zero external dependencies.
+| Layer     | Choice                                                        |
+|-----------|---------------------------------------------------------------|
+| Contract  | Solidity 0.8.24 · Foundry · zero external dependencies        |
+| Chain     | Monad testnet · chainId 10143                                 |
+| Frontend  | single-file `index.html` · ethers v6 · no framework, no build |
+| Tests     | Foundry · 9/9 passing                                         |
 
-## Live demo
+## Flow
 
-- **App:** _<paste your Vercel/Netlify URL>_
-- **Contract (Monad testnet):** _<paste deployed address>_
-- **Explorer:** https://testnet.monadexplorer.com/address/<address>
+1. **Deposit** MON into your own vault.
+2. **Engage the breaker** — pick a cooldown (1h / 24h / 7d / 30d). The dial flips RED and a live countdown starts.
+3. **Try to withdraw while locked** → the tx reverts with `StillLocked`. You can watch it fail in the explorer.
+4. **Wait it out.** Once the timer clears, the dial goes GREEN and withdrawals work again. The only way out is through.
 
-The demo money-shot: deposit → engage the breaker → try to withdraw → the tx
-**reverts on-chain** and you can watch it fail in the explorer. Judges click
-withdraw twice; it holds both times.
+## The contract
 
----
+The whole product is one check. You can extend a lock; you can never shorten it.
 
-## Run it
+```solidity
+function lock(uint64 duration) external {
+    if (duration == 0) revert ZeroDuration();
+    Vault storage v = _vaults[msg.sender];
+    uint64 newUntil = uint64(block.timestamp) + duration;
+    if (newUntil <= v.lockedUntil) revert WouldShortenLock(v.lockedUntil); // one-way only
+    v.lockedUntil = newUntil;
+    emit Locked(msg.sender, newUntil);
+}
 
-Prereqs: [Foundry](https://book.getfoundry.sh/getting-started/installation),
-a wallet with testnet MON from https://faucet.monad.xyz.
+function withdraw(uint256 amount) external nonReentrant {
+    if (amount == 0) revert AmountZero();
+    Vault storage v = _vaults[msg.sender];
+    if (block.timestamp < v.lockedUntil) revert StillLocked(v.lockedUntil); // the feature
+    ...
+}
+```
+
+No `onlyOwner`, no mutable admin, no `selfdestruct`. ~120 lines. The deployer has no more
+power over your vault than a stranger does.
+
+## Local dev
 
 ```bash
-# tests (9 passing)
-forge test -vv
+forge install foundry-rs/forge-std --no-git
+forge test -vv            # 9 passing
+```
 
-# deploy to Monad testnet
-cp .env.example .env        # then fill in PRIVATE_KEY
-source .env
-forge script script/Deploy.s.sol:Deploy \
+## Deploy
+
+```bash
+forge create src/IronHands.sol:IronHands \
   --rpc-url https://testnet-rpc.monad.xyz \
-  --broadcast
-
-# grab the printed address, paste it into web/index.html (CONTRACT_ADDRESS)
+  --interactive --broadcast
+# paste the printed address into web/index.html (CONTRACT_ADDRESS), then host web/
 ```
-
-Frontend is a single static file — open `web/index.html` locally, or drop the
-`web/` folder on Vercel / Netlify / GitHub Pages. No build step.
-
-### Verify (optional)
-
-See the official guide: https://docs.monad.xyz/guides/verify-smart-contract
-```bash
-forge verify-contract <ADDRESS> src/IronHands.sol:IronHands \
-  --chain 10143 --verifier sourcify
-```
-
----
-
-## Network
 
 | | |
 |---|---|
-| Chain | Monad Testnet |
 | Chain ID | 10143 (0x279f) |
 | RPC | https://testnet-rpc.monad.xyz |
 | Explorer | https://testnet.monadexplorer.com |
 | Faucet | https://faucet.monad.xyz |
 
----
+## Attribution
 
-## Submission form — paste-ready
+Built solo by [makabeez](https://github.com/Makabeez) for the
+[Spark](https://buildanything.so/hackathons/spark) hackathon on Monad — *build anything
+onchain that solves a personal problem.* This one solves mine.
 
-**Name:** Iron Hands
+## License
 
-**Description:** A self-custodial vault that lets you lock yourself out of your own
-funds. A personal trading circuit breaker to kill revenge-trading.
-
-**Problem:** Revenge-trading after a loss blows more accounts than bad analysis
-does. Willpower fails mid-tilt — the exact moment you need it.
-
-**Solution:** Deposit your stack and set a cooldown. The contract lets you extend
-a lock but never shorten it, with no admin backdoor, so you literally can't pull
-funds to fund a tilt trade until the timer clears. The early-withdraw revert is
-the product.
-
-**Category:** Monad Testnet
-
-**Contract address:** _<deployed address>_
-
----
-
-MIT · built solo by [makabeez](https://github.com/Makabeez)
+MIT — see [LICENSE](LICENSE).
