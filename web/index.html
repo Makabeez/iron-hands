@@ -198,6 +198,13 @@ function fmt(secs){secs=Math.max(0,secs|0);const d=Math.floor(secs/86400),h=Math
   return (d?d+"d ":"")+p(h)+":"+p(m)+":"+p(s);}
 
 function decodeErr(e){
+  if(e?.revert?.name){
+    if(e.revert.name==="StillLocked"){ const u=Number(e.revert.args?.[0]||0);
+      return u ? "Locked — "+fmt(u-Math.floor(Date.now()/1000))+" left. That's the point."
+               : "Locked — reverted on-chain. That's the point."; }
+    if(e.revert.name==="WouldShortenLock") return "The breaker only moves one way. You can't shorten a lock.";
+    if(e.revert.name==="InsufficientBalance") return "Not enough in your vault.";
+  }
   const data = e?.info?.error?.data || e?.data || e?.error?.data;
   try{ if(data){ const p=contract.interface.parseError(data); if(p){
     if(p.name==="StillLocked"){ const u=Number(p.args[0]); return "Locked — "+fmt(u-Math.floor(Date.now()/1000))+" left. That's the point."; }
@@ -219,7 +226,8 @@ function render(){
   $("sub").textContent = locked ? "funds frozen" : (account ? "clear to withdraw" : "connect a wallet");
   $("statusText").textContent = locked ? "🔒 locked" : "🟢 open";
   $("statusText").className = "v " + (locked ? "warn" : "");
-  $("btnWithdraw").disabled = !account || locked;
+  $("btnWithdraw").disabled = !account;
+  $("btnWithdraw").textContent = locked ? "TRY TO WITHDRAW" : "WITHDRAW";
 }
 
 async function refresh(){
@@ -267,10 +275,17 @@ async function tx(promise, pending){
     toast(pending);
     const t = await promise;
     toast("Submitted…", EXPLORER+"/tx/"+t.hash);
-    await t.wait();
-    toast("Confirmed ✓", EXPLORER+"/tx/"+t.hash);
+    const r = await t.wait();
+    if(r && r.status === 0){
+      toast("Reverted on-chain — funds stay frozen 🔒", EXPLORER+"/tx/"+t.hash);
+    } else {
+      toast("Confirmed ✓", EXPLORER+"/tx/"+t.hash);
+    }
     await refresh();
-  }catch(e){ toast(decodeErr(e)); }
+  }catch(e){
+    const h = e?.receipt?.hash || e?.transaction?.hash || e?.transactionHash || e?.info?.transactionHash;
+    toast(decodeErr(e), h ? EXPLORER+"/tx/"+h : undefined);
+  }
 }
 
 $("connect").onclick = connect;
@@ -283,7 +298,10 @@ $("btnLock").onclick = ()=>{
   const label = chosenSecs/86400>=1 ? (chosenSecs/86400)+"d" : (chosenSecs/3600)+"h";
   tx(contract.lock(chosenSecs), "Engaging breaker for "+label+"…"); };
 $("btnWithdraw").onclick = ()=>{ const v=$("wAmt").value; if(!(+v>0))return toast("Enter an amount.");
-  tx(contract.withdraw(ethers.parseEther(v)), "Withdrawing "+v+" MON…"); };
+  const isLocked = lockedUntil > Math.floor(Date.now()/1000);
+  const msg = isLocked ? "Forcing a withdraw — watch the chain reject it…" : "Withdrawing "+v+" MON…";
+  // explicit gas so the tx broadcasts even when it will revert — the on-chain rejection IS the proof
+  tx(contract.withdraw(ethers.parseEther(v), { gasLimit: 150000 }), msg); };
 
 render();
 if(/^0x0+$/.test(CONTRACT_ADDRESS)){
